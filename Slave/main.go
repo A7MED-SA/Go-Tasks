@@ -9,10 +9,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type ChunkJson struct {
-	Content string `json:"content"` // للوضع القديم: سطر واحد
+	Content string `json:"content"`
 	FileID  int    `json:"file_id"`
 	ChunkID int    `json:"chunk_id"`
 }
@@ -57,12 +58,19 @@ func doFileChunk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-
-	// ✅ هنا حط منطق المعالجة بتاعك
 	fmt.Printf("[Slave] Got chunk %d: %s\n", chunk.ChunkID, chunk.Content)
 
+	result := make(map[string]int)
+	for _, v := range strings.TrimSpace(chunk.Content) {
+		result[string(v)]++
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "ok",
+		"result":   result,
+		"chunk_id": chunk.ChunkID,
+	})
 }
 
 func doBackground(w http.ResponseWriter, r *http.Request) {

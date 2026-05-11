@@ -20,6 +20,17 @@ type BgJson struct {
 	Name string `json:"name"`
 }
 
+type SendResult struct {
+	Success bool
+	Result  map[string]int
+}
+
+type slaveResp struct {
+	Status  string         `json:"status"`
+	Result  map[string]int `json:"result"`
+	ChunkID int            `json:"chunk_id"`
+}
+
 type ChunkJson struct {
 	Content string `json:"content"`
 	FileID  int    `json:"file_id"`
@@ -112,7 +123,6 @@ func goFileChunk(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// 1️⃣ اقرأ مسار الملف
 	path, _ := io.ReadAll(r.Body)
 	file, err := os.Open(strings.TrimSpace(string(path)))
 	if err != nil {
@@ -121,7 +131,6 @@ func goFileChunk(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 2️⃣ جهز قائمة الـ Slaves
 	slaves := []string{}
 	for _, addr := range Slaves {
 		slaves = append(slaves, addr)
@@ -131,32 +140,36 @@ func goFileChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3️⃣ channel للنتائج
-	results := make(chan bool, 1000)
+	results := make(chan SendResult, 1000)
 
-	// 4️⃣ دالة الإرسال: جرب الـ slaves بالترتيب لحد ما واحد ينجح
-	sendToSlave := func(chunk ChunkJson, startIdx int) bool {
+	sendToSlave := func(chunk ChunkJson, startIdx int) (bool, map[string]int) {
 		data, _ := json.Marshal(chunk)
 
 		for i := 0; i < len(slaves); i++ {
-			addr := slaves[(startIdx+i)%len(slaves)] // دور على الـ slaves
+			addr := slaves[(startIdx+i)%len(slaves)]
+
 			resp, err := http.Post(
-				"http://"+addr+":9070/FileChunk", // ✅ endpoint الصح
+				"http://"+addr+":9070/FileChunk",
 				"application/json",
 				bytes.NewBuffer(data),
 			)
+
 			if err == nil && resp.StatusCode == http.StatusOK {
+				var slaveResp slaveResp
+
+				if err := json.NewDecoder(resp.Body).Decode(&slaveResp); err == nil {
+					resp.Body.Close()
+					return true, slaveResp.Result
+				}
 				resp.Body.Close()
-				return true // ✅ نجح
 			}
 			if resp != nil {
 				resp.Body.Close()
 			}
 		}
-		return false // ❌ كلهم فشلوا
+		return false, nil
 	}
 
-	// 5️⃣ اقرأ الملف وابعت كل سطر في goroutine
 	chunkID := 0
 	scanner := bufio.NewScanner(file)
 
@@ -167,30 +180,36 @@ func goFileChunk(w http.ResponseWriter, r *http.Request) {
 		}
 
 		chunk := ChunkJson{Content: line, FileID: 1, ChunkID: chunkID}
-		startIdx := chunkID % len(slaves) // الدور على الـ slaves
+		startIdx := chunkID % len(slaves)
 
 		go func(c ChunkJson, idx int) {
-			results <- sendToSlave(c, idx) // ابعت النتيجة في الـ channel
+			success, result := sendToSlave(c, idx)
+			results <- SendResult{Success: success, Result: result}
 		}(chunk, startIdx)
 
 		chunkID++
 	}
 	total := chunkID
 
-	// 6️⃣ عدّ النتائج
 	success := 0
+	globalResult := make(map[string]int)
+
 	for i := 0; i < total; i++ {
-		if <-results {
+		res := <-results
+		if res.Success {
 			success++
-		} // اقرأ من الـ channel
+			for char, count := range res.Result {
+				globalResult[char] += count
+			}
+		}
 	}
 
-	// 7️⃣ اكتب الرد
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"total":   total,
 		"success": success,
 		"failed":  total - success,
+		"result":  globalResult,
 	})
 }
 
