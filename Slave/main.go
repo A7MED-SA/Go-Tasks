@@ -96,7 +96,7 @@ func doBackground(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("File Received: ", handler.Filename)
 	os.MkdirAll(filepath.Join(".", "data", "Background"), os.ModePerm)
 
-	dstPath := "./data/Background/uploaded" + handler.Filename
+	dstPath := "./data/Background/uploaded_" + handler.Filename
 	dst, err := os.Create(dstPath)
 
 	if err != nil {
@@ -105,18 +105,18 @@ func doBackground(w http.ResponseWriter, r *http.Request) {
 	}
 
 	io.Copy(dst, file)
-	// w.Write([]byte("File uploaded Successfully..."))
+	dst.Close()
+
 	currentOS := runtime.GOOS
 	var cmd *exec.Cmd
 	absolutePath, err := filepath.Abs(dstPath)
 	if err != nil {
-		http.Error(w, "Error Can't Research to Path File ", http.StatusInternalServerError)
+		http.Error(w, "Error Can't Resolve File Path", http.StatusInternalServerError)
+		return
 	}
 
 	if currentOS == "windows" {
 		fmt.Println("OS is Windows")
-		dst.Sync()
-		dst.Close()
 		normalizedPath := filepath.ToSlash(absolutePath)
 		fmt.Printf("Normalized Path: %s\n", normalizedPath)
 		psScript := fmt.Sprintf(`$ErrorActionPreference = "Stop"
