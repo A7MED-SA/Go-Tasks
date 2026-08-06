@@ -1,0 +1,5 @@
+[
+    {"IP": "192.168.1.18", "Slave": 1,"Slave_Name":"Ahmed"},
+    {"IP": "192.168.1.16", "Slave": 3,"Slave_Name":"Nour"},
+    {"IP": "192.168.1.34", "Slave": 2,"Slave_Name":"HP"}
+]
